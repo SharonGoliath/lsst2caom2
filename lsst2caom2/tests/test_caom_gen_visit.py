@@ -2,7 +2,7 @@
 # ******************  CANADIAN ASTRONOMY DATA CENTRE  *******************
 # *************  CENTRE CANADIEN DE DONNÉES ASTRONOMIQUES  **************
 #
-#  (c) 2025.                            (c) 2025.
+#  (c) 2026.                            (c) 2026.
 #  Government of Canada                 Gouvernement du Canada
 #  National Research Council            Conseil national de recherches
 #  Ottawa, Canada, K1A 0R6              Ottawa, Canada, K1A 0R6
@@ -79,7 +79,7 @@ import os
 
 
 def pytest_generate_tests(metafunc):
-    obs_id_list = glob.glob(f'{metafunc.config.invocation_dir}/data/*.fits.header')
+    obs_id_list = glob.glob(f'{metafunc.config.invocation_dir}/data/*.expected.xml')
     metafunc.parametrize('test_name', obs_id_list)
 
 
@@ -103,16 +103,16 @@ def test_main_app(test_name, test_config, tmp_path, change_test_dir):
         os.unlink(actual_fqn)
     observation = None
     if os.path.exists(in_fqn):
-        observation = mc.read_obs_from_file(in_fqn)
+        observation = read_obs_from_file(in_fqn)
     observation = file2caom2_augmentation.visit(observation, **kwargs)
     if observation is None:
         assert False, f'Did not create observation for {test_name}'
     else:
         if os.path.exists(expected_fqn):
-            expected = mc.read_obs_from_file(expected_fqn)
+            expected = read_obs_from_file(expected_fqn)
             compare_result = get_differences(expected, observation)
             if compare_result is not None:
-                mc.write_obs_to_file(observation, actual_fqn)
+                write_obs_to_file(observation, actual_fqn)
                 compare_text = '\n'.join([r for r in compare_result])
                 msg = (
                     f'Differences found in observation {expected.observation_id}\n'

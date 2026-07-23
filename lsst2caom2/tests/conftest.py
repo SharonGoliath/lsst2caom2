@@ -2,7 +2,7 @@
 # ******************  CANADIAN ASTRONOMY DATA CENTRE  *******************
 # *************  CENTRE CANADIEN DE DONNÉES ASTRONOMIQUES  **************
 #
-#  (c) 2025.                             (c) 2025.
+#  (c) 2026.                             (c) 2026.
 #  Government of Canada                 Gouvernement du Canada
 #  National Research Council            Conseil national de recherches
 #  Ottawa, Canada, K1A 0R6              Ottawa, Canada, K1A 0R6
@@ -66,19 +66,37 @@
 # ***********************************************************************
 #
 
+# Mock lsst.daf.butler so unit tests run in the docker container where the LSST stack is not installed.
+import sys
+from unittest.mock import MagicMock
+
+_lsst = MagicMock()
+_lsst.daf = MagicMock()
+_lsst_daf_butler = MagicMock()
+_lsst_daf_butler.Butler = MagicMock()
+_lsst_daf_butler.DatasetRef = MagicMock()
+_lsst.daf.butler = _lsst_daf_butler
+sys.modules['lsst'] = _lsst
+sys.modules['lsst.daf'] = _lsst.daf
+sys.modules['lsst.daf.butler'] = _lsst_daf_butler
+
 from os.path import dirname, join, realpath
 from caom2pipe.manage_composable import Config, StorageName, TaskType
 import pytest
 
-COLLECTION = 'LSST'
-SCHEME = 'cadc'
-PREVIEW_SCHEME = 'cadc'
+DATASET_TYPE = 'deep_coadd'
+INSTRUMENT = 'LSSTComCam'
+NAMESPACE = 'LSST/DP1'
+COLLECTION = 'LSST.DP1'
+SCHEME = 'lsst'
+PREVIEW_SCHEME = 'lsst'
 
 
 @pytest.fixture()
 def test_config():
     config = Config()
     config.collection = COLLECTION
+    config.namespace = NAMESPACE
     config.preview_scheme = PREVIEW_SCHEME
     config.scheme = SCHEME
     config.logging_level = 'INFO'
@@ -87,6 +105,10 @@ def test_config():
     StorageName.preview_scheme = config.preview_scheme
     StorageName.scheme = config.scheme
     StorageName.data_source_extensions = config.data_source_extensions
+    config.lookup = {
+        'dataset_type': DATASET_TYPE,
+        'instrument': INSTRUMENT,
+    }
     return config
 
 
@@ -96,7 +118,7 @@ def test_data_dir():
     fqn = join(this_dir, 'data')
     return fqn
 
-             
+
 @pytest.fixture()
-def change_test_dir(tmp_path, monkeypatch): 
+def change_test_dir(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)

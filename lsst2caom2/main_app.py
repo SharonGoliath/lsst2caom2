@@ -2,7 +2,7 @@
 # ******************  CANADIAN ASTRONOMY DATA CENTRE  *******************
 # *************  CENTRE CANADIEN DE DONNÉES ASTRONOMIQUES  **************
 #
-#  (c) 2025.                            (c) 2025.
+#  (c) 2026.                            (c) 2026.
 #  Government of Canada                 Gouvernement du Canada
 #  National Research Council            Conseil national de recherches
 #  Ottawa, Canada, K1A 0R6              Ottawa, Canada, K1A 0R6
@@ -67,7 +67,7 @@
 #
 
 """
-This module implements the ObsBlueprint mapping, as well as the workflow 
+This module implements the ObsBlueprint mapping, as well as the workflow
 entry point that executes the workflow.
 """
 
@@ -79,23 +79,23 @@ from caom2pipe import manage_composable as mc
 
 __all__ = [
     'LSSTMapping',
-    'LSSTName',
+    # 'LSSTName',
 ]
 
 
-class LSSTName(mc.StorageName):
-    """Naming rules:
-    - support mixed-case file name storage, and mixed-case obs id values
-    - support uncompressed files in storage
-    """
+# class LSSTName(mc.StorageName):
+#     """Naming rules:
+#     - support mixed-case file name storage, and mixed-case obs id values
+#     - support uncompressed files in storage
+#     """
 
-    LSST_NAME_PATTERN = '*'
+#     LSST_NAME_PATTERN = '*'
 
-    def __init__(self, source_names):
-        super().__init__(source_names=source_names)
+#     def __init__(self, source_names):
+#         super().__init__(source_names=source_names)
 
-    def is_valid(self):
-        return True
+#     def is_valid(self):
+#         return True
 
 
 class LSSTMapping(cc.TelescopeMapping2):
@@ -118,7 +118,7 @@ class LSSTMapping(cc.TelescopeMapping2):
         self._logger.debug('Done accumulate_bp.')
 
     def update(self):
-        """Called to fill multiple CAOM model elements and/or attributes (an n:n relationship between TDM attributes 
+        """Called to fill multiple CAOM model elements and/or attributes (an n:n relationship between TDM attributes
         and CAOM attributes).
         """
         return super().update()

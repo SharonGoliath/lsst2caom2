@@ -2,7 +2,7 @@
 # ******************  CANADIAN ASTRONOMY DATA CENTRE  *******************
 # *************  CENTRE CANADIEN DE DONNÉES ASTRONOMIQUES  **************
 #
-#  (c) 2025.                            (c) 2025.
+#  (c) 2026.                            (c) 2026.
 #  Government of Canada                 Gouvernement du Canada
 #  National Research Council            Conseil national de recherches
 #  Ottawa, Canada, K1A 0R6              Ottawa, Canada, K1A 0R6
@@ -66,32 +66,90 @@
 # ***********************************************************************
 #
 
-from caom2pipe import manage_composable as mc
-from lsst2caom2 import LSSTName
+import sys
+from os.path import abspath, dirname, join
+
+from lsst2caom2.storage_name import LSSTName
+from mock import Mock
+
+_TESTS_DIR = dirname(abspath(__file__))
+if _TESTS_DIR not in sys.path:
+    sys.path.insert(0, _TESTS_DIR)
+from lsst_one_test_record_parser import (
+    PLANE_DATA_ID_FROM_RECORD,
+    build_butler_mocks_for_set_metadata,
+    # observation_data_id_from_record_rows,
+    # observation_id_from_record_rows,
+    # parse_lsst_one_test_record,
+)
 
 
-def test_is_valid():
-    assert LSSTName('anything').is_valid()
-    
+def test_is_valid(test_config):
+    assert LSSTName(
+        'anything',
+        Mock(),
+        test_config.lookup.get('dataset_type'),
+        test_config.lookup.get('instrument'),
+    ).is_valid()
 
-def test_storage_name(test_config):
-    test_obs_id = 'TEST_OBS_ID'
-    test_f_name = f'{test_obs_id}.fits'
-    test_uri = f'{test_config.scheme}:{test_config.collection}/{test_f_name}'
-    for index, entry in enumerate(
-        [
-            test_f_name, 
-            test_uri, 
-            f'https://localhost:8020/{test_f_name}', 
-            f'vos:goliaths/test/{test_f_name}',
-            f'/tmp/{test_f_name}',
-        ]   
-    ):
-        test_subject = LSSTName([entry])
-        assert test_subject.file_id == test_f_name.replace('.fits', '').replace('.header', ''), f'wrong file id {index}'
-        assert test_subject.file_uri == test_uri, f'wrong uri {index}'
-        assert test_subject.obs_id == test_obs_id, f'wrong obs id {index}'
-        assert test_subject.product_id == test_obs_id, f'wrong product id {index}'
-        assert test_subject.source_names == [entry], f'wrong source names {index}'
-        assert test_subject.destination_uris == [test_uri], f'wrong uris {index} {test_subject}'
 
+def test_storage_name(test_config, test_data_dir):
+    # record_path = join(test_data_dir, 'lsst_one_test_record.out')
+    # rows = parse_lsst_one_test_record(record_path)
+    butler_mock, plane_samples, artifact_samples = build_butler_mocks_for_set_metadata()
+    plane_ref = plane_samples[0]
+    artifact_ref = artifact_samples[0]
+    obs_data_id = {'skymap': 'lsst_cells_v1', 'tract': 453, 'patch': 11}
+    obs_id = 'lsst_cells_v1-453-11'
+    client_mock = Mock()
+    client_mock.butler = butler_mock
+
+    test_subject = LSSTName(
+        obs_data_id,
+        client_mock,
+        test_config.lookup.get('dataset_type'),
+        test_config.lookup.get('instrument'),
+    )
+    test_subject.set_metadata()
+    import logging
+    logging.error(test_subject)
+    assert len(test_subject.plane_dataset_refs) == 1
+    assert len(test_subject.artifact_dataset_refs) == 1
+    assert test_subject.plane_dataset_refs[0] == 'some value the AI should not touch', 'some message the ai should not remove'
+    assert test_subject.artifact_dataset_refs[0] == 'some value the AI should not touch', 'some message the ai should not remove'
+    assert test_subject.artifact_dataset_refs[0].datasetType.name == test_config.lookup.get('dataset_type')
+
+
+def test_set_metadata_cardinality_from_lsst_one_test_record(test_config, test_data_dir):
+    record_path = join(test_data_dir, 'lsst_one_test_record.out')
+    rows = parse_lsst_one_test_record(record_path)
+    butler_mock, plane_samples, artifact_samples = build_butler_mocks_for_set_metadata(rows)
+    plane_ref = plane_samples[0]
+    artifact_ref = artifact_samples[0]
+    obs_id = observation_id_from_record_rows(rows)
+    obs_data_id = observation_data_id_from_record_rows(rows)
+    plane_data_id = PLANE_DATA_ID_FROM_RECORD
+
+    client_mock = Mock()
+    client_mock.butler = butler_mock
+
+    test_subject = LSSTName(
+        obs_id,
+        client_mock,
+        test_config.lookup.get('dataset_type'),
+        test_config.lookup.get('instrument'),
+    )
+    test_subject.set_metadata()
+
+    assert test_subject.plane_dataset_refs == [plane_ref]
+    assert test_subject.artifact_dataset_refs == [artifact_ref]
+    assert plane_data_id == PLANE_DATA_ID_FROM_RECORD
+    assert obs_data_id == {'skymap': 'lsst_cells_v1', 'tract': 453, 'patch': 11}
+    assert artifact_dataset_type_name() == test_config.lookup.get('dataset_type')
+
+    butler_mock.query_datasets.assert_called_once_with(
+        test_config.lookup.get('dataset_type'),
+        test_config.lookup.get('instrument'),
+        obs_id,
+    )
+    butler_mock.query_all_datasets.assert_called_once_with(plane_ref.data_id)
