@@ -1,2 +1,6 @@
 # lsst2caom2
-Starting point to build an application to generate CAOM2 Observations from FITS files.
+
+Generate CAOM2 Observations for LSST.
+
+- `lsst_run` / `lsst_run_incremental` — metadata ingest - replaces Artifact URIs from butler.dax_obscore output with Storage Inventory URIs.
+

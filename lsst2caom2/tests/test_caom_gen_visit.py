@@ -66,10 +66,12 @@
 # ***********************************************************************
 #
 
-from mock import patch
+import warnings
+
+from mock import Mock
 
 from cadcdata import FileInfo
-from lsst2caom2 import file2caom2_augmentation, main_app
+from lsst2caom2 import xml_augmentation, storage_name
 from caom2.diff import get_differences
 from caom2pipe import astro_composable as ac
 from caom2pipe.manage_composable import ExecutionReporter2, read_obs_from_file, write_obs_to_file
@@ -84,17 +86,34 @@ def pytest_generate_tests(metafunc):
 
 
 def test_main_app(test_name, test_config, tmp_path, change_test_dir):
+    warnings.filterwarnings('ignore')
     test_config.change_working_directory(tmp_path.as_posix())
-    storage_name = main_app.LSSTName(source_names=[test_name])
-    file_info = FileInfo(id=storage_name.file_uri, file_type='application/fits')
+    test_storage_name = storage_name.LSSTName(source_names=[test_name])
+    file_info = FileInfo(id=test_storage_name.file_uri, file_type='application/fits')
     headers = ac.make_headers_from_file(test_name)
-    storage_name.file_info = {storage_name.file_uri: file_info}
-    storage_name.metadata = {storage_name.file_uri: headers}
+    test_storage_name.file_info = {test_storage_name.file_uri: file_info}
+    test_storage_name.metadata = {test_storage_name.file_uri: headers}
     test_reporter = ExecutionReporter2(test_config)
+    clients_mock = Mock()
+    # artifact_dataset_ref deep_coadd@{
+    # band: 'g',
+    # skymap: 'lsst_cells_v1',
+    # tract: 453,
+    # patch: 11} [sc=ExposureF]
+    # (run=LSSTComCam/runs/DRP/DP1/DM-51335 id=af9c7765-8295-42f3-8368-0e6569d12c8a)
+    # uri https://ws.cadc-ccda.hia-iha.nrc-cnrc.gc.ca/raven/files/lsst:dp1/LSSTComCam/runs/DRP/DP1/DM-51335/deep_coadd/453/11/g/deep_coadd_453_11_g_lsst_cells_v1_LSSTComCam_runs_DRP_DP1_DM-51335.fits
+    # <class 'lsst.daf.butler.dimensions._coordinate._FullTupleDataCoordinate'>
+
+    clients_mock.butler.getURI.return_value = {
+        'uri': 'https://ws.cadc-ccda.hia-iha.nrc-cnrc.gc.ca/raven/files/lsst:dp1/LSSTComCam/runs/DRP/DP1/DM-51335/deep_coadd/453/11/g/deep_coadd_453_11_g_lsst_cells_v1_LSSTComCam_runs_DRP_DP1_DM-51335.fits',
+        'size': 6,
+        'md5': 12,
+    }
     kwargs = {
-        'storage_name': storage_name,
+        'storage_name': test_storage_name,
         'config': test_config,
         'reporter': test_reporter,
+        'clients': clients_mock,
     }
     expected_fqn = test_name.replace('.fits.header', '.expected.xml')
     in_fqn = expected_fqn.replace('.expected', '.in')
@@ -104,7 +123,9 @@ def test_main_app(test_name, test_config, tmp_path, change_test_dir):
     observation = None
     if os.path.exists(in_fqn):
         observation = read_obs_from_file(in_fqn)
-    observation = file2caom2_augmentation.visit(observation, **kwargs)
+    else:
+        raise AssertionError(f'Input observation file must exist {in_fqn}')
+    observation = xml_augmentation.visit(observation, **kwargs)
     if observation is None:
         assert False, f'Did not create observation for {test_name}'
     else:

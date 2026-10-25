@@ -85,9 +85,9 @@ from caom2pipe.manage_composable import Config, StorageName, TaskType
 import pytest
 
 DATASET_TYPE = 'deep_coadd'
-INSTRUMENT = 'LSSTComCam'
-NAMESPACE = 'LSST/DP1'
-COLLECTION = 'LSST.DP1'
+INSTRUMENT = 'LSSTCam'
+NAMESPACE = 'LSST/DP2'
+COLLECTION = 'LSST.DP2'
 SCHEME = 'lsst'
 PREVIEW_SCHEME = 'lsst'
 
@@ -100,7 +100,7 @@ def test_config():
     config.preview_scheme = PREVIEW_SCHEME
     config.scheme = SCHEME
     config.logging_level = 'INFO'
-    config.task_types = [TaskType.INGEST]
+    config.task_types = [TaskType.VISIT]
     StorageName.collection = config.collection
     StorageName.preview_scheme = config.preview_scheme
     StorageName.scheme = config.scheme
@@ -108,6 +108,9 @@ def test_config():
     config.lookup = {
         'dataset_type': DATASET_TYPE,
         'instrument': INSTRUMENT,
+        'data_release': '2028-01-01',
+        'butler_uri': 'file://./butler.yaml',
+        'butler_collections': 'LSSTCam/runs/DRP/DP2',
     }
     return config
 

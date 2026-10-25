@@ -2,7 +2,7 @@
 # ******************  CANADIAN ASTRONOMY DATA CENTRE  *******************
 # *************  CENTRE CANADIEN DE DONNÉES ASTRONOMIQUES  **************
 #
-#  (c) 2025.                            (c) 2025.
+#  (c) 2026.                            (c) 2026.
 #  Government of Canada                 Gouvernement du Canada
 #  National Research Council            Conseil national de recherches
 #  Ottawa, Canada, K1A 0R6              Ottawa, Canada, K1A 0R6
@@ -66,8 +66,9 @@
 # ***********************************************************************
 #
 
+
 """
-Implements the default entry point functions for the workflow 
+Implements the default entry point functions for the workflow
 application.
 
 'run' executes based on either provided lists of work, or files on disk.
@@ -78,12 +79,36 @@ import logging
 import sys
 import traceback
 
+from caom2pipe.client_composable import ClientCollection
+from caom2pipe.manage_composable import Config
 from caom2pipe.run_composable import run_by_state_runner_meta, run_by_todo_runner_meta
-from lsst2caom2 import file2caom2_augmentation, main_app
+from lsst2caom2 import xml_augmentation
+from lsst2caom2.storage_name import LSSTName
 
 
-META_VISITORS = [file2caom2_augmentation]
+META_VISITORS = [xml_augmentation]
 DATA_VISITORS = []
+
+
+class ButlerClientCollection(ClientCollection):
+
+    def __init__(self, config):
+        super().__init__(config)
+        from lsst.daf.butler import Butler
+        self._butler = Butler(
+            config.lookup.get('butler_uri'), collections=[config.lookup.get('butler_collections')], writeable=False
+        )
+
+    @property
+    def butler(self):
+        return self._butler
+
+
+def _common_init():
+    config = Config()
+    config.get_executors()
+    clients = ButlerClientCollection(config)
+    return config, clients
 
 
 def _run():
@@ -92,8 +117,15 @@ def _run():
 
     :return 0 if successful, -1 if there's any sort of failure.
     """
+    config, clients = _common_init()
     return run_by_todo_runner_meta(
-        meta_visitors=META_VISITORS, data_visitors=DATA_VISITORS, storage_name_ctor=main_app.LSSTName
+        config=config,
+        clients=clients,
+        meta_visitors=META_VISITORS,
+        data_visitors=DATA_VISITORS,
+        storage_name_ctor=LSSTName,
+        organizer_module_name='lsst2caom2.xml_execute',
+        organizer_class_name='XmlOrganizeExecutesRunnerMeta',
     )
 
 
@@ -112,8 +144,15 @@ def run():
 def _run_incremental():
     """Uses a state file with a timestamp to identify the work to be done.
     """
+    config, clients = _common_init()
     return run_by_state_runner_meta(
-        meta_visitors=META_VISITORS, data_visitors=DATA_VISITORS, storage_name_ctor=main_app.LSSTName
+        config=config,
+        clients=clients,
+        meta_visitors=META_VISITORS,
+        data_visitors=DATA_VISITORS,
+        storage_name_ctor=LSSTName,
+        organizer_module_name='lsst2caom2.xml_execute',
+        organizer_class_name='XmlOrganizeExecutesRunnerMeta',
     )
 
 

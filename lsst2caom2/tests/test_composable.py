@@ -2,7 +2,7 @@
 # ******************  CANADIAN ASTRONOMY DATA CENTRE  *******************
 # *************  CENTRE CANADIEN DE DONNÉES ASTRONOMIQUES  **************
 #
-#  (c) 2025.                            (c) 2025.
+#  (c) 2026.                            (c) 2026.
 #  Government of Canada                 Gouvernement du Canada
 #  National Research Council            Conseil national de recherches
 #  Ottawa, Canada, K1A 0R6              Ottawa, Canada, K1A 0R6
@@ -81,7 +81,6 @@ def test_run(do_one_mock, clients_mock, test_config, tmp_path, change_test_dir):
     test_config.change_working_directory(tmp_path.as_posix())
     test_config.proxy_file_name = 'test_proxy.fqn'
     test_config.logging_level = 'DEBUG'
-    test_config.task_types = [mc.TaskType.INGEST]
     test_config.write_to_file(test_config)
 
     with open(test_config.proxy_fqn, 'w') as f:
@@ -102,3 +101,9 @@ def test_run(do_one_mock, clients_mock, test_config, tmp_path, change_test_dir):
     assert isinstance(test_storage, mc.StorageName), type(test_storage)
     assert test_storage.file_name == test_f_name, 'wrong file name'
     assert test_storage.source_names[0] == test_f_name, 'wrong fname on disk'
+
+
+def test_meta_visitors():
+    assert composable.META_VISITORS == [
+        composable.xml_augmentation,
+    ]

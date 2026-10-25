@@ -1,8 +1,8 @@
 working_directory: /usr/src/app
 # the netrc_filename value must be a fully-qualified name
 # netrc_filename: /usr/src/app/netrc
-# this is the name of the proxy certificate file supplied 
-# to the container. It must be a fully-qualified name. 
+# this is the name of the proxy certificate file supplied
+# to the container. It must be a fully-qualified name.
 # One of netrc_filename or proxy_filename must have a value.
 proxy_file_name: /usr/src/app/cadcproxy.pem
 # operational value is ivo://cadc.nrc.ca/ams
@@ -21,7 +21,7 @@ data_source_extensions:
   - .fits
 # values True False
 # when True, the application will look for files with
-# .fits, .gz, .json endings as defining the work to be 
+# .fits, .gz, .json endings as defining the work to be
 # done.
 use_local_files: True
 # values DEBUG INFO WARNING ERROR
@@ -50,28 +50,35 @@ retry_file_name: retries.txt
 # this file is created in the logs directory, default is 'progress.txt'
 progress_file_name: progress.txt
 #
-collection: LSST
-scheme: cadc
-preview_scheme: cadc
+collection: LSST.DP2
+namespace: LSST/DP2
+scheme: lsst
+lookup:
+  data_release: 2028-01-01T00:00:00
+  dataset_type: deep_coadd
+  instrument: LSSTCam
+  butler_uri: file://./butler.yaml
+  butler_collections: LSSTCam/runs/DRP/DP2
+preview_scheme: lsst
 #
 # CADC service execution metrics
 #
 observe_execution: True
 observable_directory: /usr/src/app/metrics
-# 
+#
 # if the pipeline for the collection tracks known failures, that occurs
 # in this location
-# 
+#
 rejected_file_name: rejected.yml
 rejected_directory: /usr/src/app/rejected
 #
-# for information that needs to be persisted between pipeline 
+# for information that needs to be persisted between pipeline
 # invocations, defaults to 'state.yml', and is found in 'working_directory'
 #
 state_file_name: state.yml
 #
-# if using a state file to time-box execution chunks, this is 
-# the interval, in minutes, that define the start and end of the 
+# if using a state file to time-box execution chunks, this is
+# the interval, in minutes, that define the start and end of the
 # time-box.
 #
 interval: 600
@@ -80,6 +87,7 @@ interval: 600
 # - scrape - read the headers, write out the xml - kind of a test mode
 # - store - calls cadc-data to put a file from local storage (use_local_files must be set to True)
 # - ingest - read the headers, write the xml to the endpoint found by resource_id
+# - visit - write xml without access to the data files
 # - modify - create a footprint and previews for an existing CAOM model record
-task_types: 
-  - ingest
+task_types:
+  - visit
