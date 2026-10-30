@@ -82,25 +82,14 @@ from caom2 import ChecksumURI
 from caom2pipe.manage_composable import CadcException, make_datetime
 
 
-__all__ = [
-    'ARTIFACT_URI_FIELD',
-    'PLANE_DATA_RELEASE_FIELD',
-    'PLANE_META_RELEASE_FIELD',
-    'XmlAugmentationVisitor',
-    'rekey_artifact',
-    'visit',
-]
+__all__ = ['visit' ]
 
-ARTIFACT_URI_FIELD = 'artifact_uri'
-PLANE_DATA_RELEASE_FIELD = 'plane_data_release'
-PLANE_META_RELEASE_FIELD = 'plane_meta_release'
 
 # Defaults aligned with butler2caom.py for DP1 coadds.
-_DEFAULT_SI_PATH_ROOT = '/raven/files/'
-# _DEFAULT_OBSERVATION_ID_KEYS = ['skymap', 'tract', 'patch']
+_DEFAULT_SI_ROOT_PATH = '/raven/files/'
 _DEFAULT_OBSERVATION_ID_KEYS = ['skymap', 'tract']
 _DEFAULT_DATASET_TYPE = 'deep_coadd'
-_DEFAULT_INSTRUMENT = 'LSSTComCam'
+_DEFAULT_INSTRUMENT = 'LSSTCam'
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -169,31 +158,15 @@ class XmlAugmentationVisitor:
             raise CadcException('No Observation for XML augmentation.')
         self._logger.debug(f'Begin XML augmentation for {self.observation.observation_id}')
         for plane in self.observation.planes.values():
-            # self._logger.error(f'{plane.product_id}')
+            self._rewrite_plane(plane)
             for old_uri in list(plane.artifacts.keys()):
-                # self._logger.error(old_uri)
                 # TODO need a check to not redo a lookup if it's already been set
                 self._rewrite_artifact(self.observation.observation_id, plane, plane.artifacts[old_uri], old_uri)
-        self._check_artifact_accessibility()
+        # self._check_artifact_accessibility() - the butler has already determined that the file exists
         self._logger.debug(f'End XML augmentation for {self.observation.observation_id}')
         return self.observation
 
-    def _check_artifact_accessibility(self):
-        data_client = getattr(self.clients, 'data_client', None) if self.clients is not None else None
-        if data_client is None:
-            self._logger.warning('No data client configured; skipping Artifact accessibility checks.')
-            return
-        for plane in self.observation.planes.values():
-            for uri, _artifact in plane.artifacts.items():
-                self._logger.debug(f'Checking accessibility for {uri}')
-                try:
-                    info = data_client.info(uri)
-                except Exception as e:
-                    raise CadcException(f'Artifact {uri} is not accessible in storage: {e}') from e
-                if info is None:
-                    raise CadcException(f'Artifact {uri} is not accessible in storage.')
-
-    def _rewrite_plane(self, plane, fields):
+    def _rewrite_plane(self, plane):
         if plane.data_release is None:
             data_release = self.configured_data_release
             if data_release is None:
@@ -206,35 +179,22 @@ class XmlAugmentationVisitor:
                 self.observation.meta_release or datetime.datetime.now()
             )
 
-    def _base_data_id(self):
-        keys = self.observation_id_keys
-        parts = self.observation.observation_id.split('-')
-        if len(parts) < len(keys):
-            raise CadcException(
-                f'Cannot parse observationID {self.observation.observation_id} into keys {keys}.'
-            )
-        if len(parts) == len(keys):
-            return {k: _coerce(parts[i]) for i, k in enumerate(keys)}
-        head = len(parts) - len(keys) + 1
-        values = ['-'.join(parts[:head])] + parts[head:]
-        return {k: _coerce(values[i]) for i, k in enumerate(keys)}
-
     def _rewrite_artifact(self, observation_id, plane, artifact, old_uri):
-        new_uri, length, md5 = self._lookup_uri_and_meta(observation_id, plane, old_uri)
+        new_uri, length, checksum = self._lookup_uri_and_meta(observation_id, plane, old_uri)
         rekey_artifact(plane, old_uri, new_uri)
         if artifact.content_length is None and length is not None:
             artifact.content_length = length
-        if artifact.content_checksum is None and md5:
-            artifact.content_checksum = ChecksumURI(md5 if md5.startswith('md5:') else f'md5:{md5}')
+        if artifact.content_checksum is None and checksum:
+            # checksum uri type is adler
+            artifact.content_checksum = ChecksumURI(checksum)
 
     def _lookup_uri_and_meta(self, observation_id, plane, old_uri):
-        # self._logger.error(plane.product_id)
         obs_bits = observation_id.split('-')
         skymap = obs_bits[0]
         plane_bits = plane.product_id.split('-')
         dataset_type = plane_bits[0]
-        tract = plane_bits[1]
-        patch = plane_bits[2]
+        tract = int(plane_bits[1])
+        patch = int(plane_bits[2])
         band = plane_bits[3]
         data_id = {
             'band': band,
@@ -242,31 +202,28 @@ class XmlAugmentationVisitor:
             'tract': tract,
             'patch': patch,
         }
+        butler_collections = [self.config.lookup.get('butler_collections')]
+        dataset_ref = self.clients.butler.find_dataset(
+            self.dataset_type, collections=butler_collections, band=band, skymap=skymap, tract=tract, patch=patch
+        )
         self._logger.debug(
-            f'Looking up dataset_ref type={dataset_type} instrument={self.instrument} data_id={data_id}'
+            f'Looking up dataset_ref type={dataset_type} instrument={self.instrument} data_id={data_id} {dataset_ref}'
         )
         try:
-            butler_uri = self.clients.butler.getURI(data_id)
+            butler_uri = self.clients.butler.getURI(dataset_ref)
         except Exception as e:
             raise CadcException(f'Butler getURI failed for {old_uri}: {e}') from e
 
         if butler_uri is None:
             raise CadcException(f'Butler getURI returned None for {old_uri}.')
+        uri_info = butler_uri.get_info()
 
-        # url = butler_uri.geturl() if hasattr(butler_uri, 'geturl') else str(butler_uri)
-        # new_uri = urllib.parse.urlsplit(url).path.replace(self.si_path_root, '')
-        uri = butler_uri.get('uri')
-        new_uri = uri.split('/raven/files/')[1]
+        new_uri = uri_info.uri.split(_DEFAULT_SI_ROOT_PATH)[1]
         if not new_uri:
             raise CadcException(f'Butler getURI produced empty URI for {old_uri} from {new_uri}.')
 
-        length = getattr(butler_uri, 'size', None)
-        if length is None:
-            length = getattr(butler_uri, 'content_length', None)
-        md5 = getattr(butler_uri, 'md5', None) or getattr(butler_uri, 'checksum', None)
-        if md5 is not None:
-            md5 = str(md5)
-        return new_uri, length, md5
+        adler_checksum = uri_info.checksums.get('adler')
+        return new_uri, uri_info.size, f'adler:{adler_checksum}'
 
 
 def _coerce(value):

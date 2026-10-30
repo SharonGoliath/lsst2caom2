@@ -18,7 +18,7 @@ todo_file_name: todo.txt
 data_sources:
   - vos:test
 data_source_extensions:
-  - .fits
+  - .xml
 # values True False
 # when True, the application will look for files with
 # .fits, .gz, .json endings as defining the work to be
@@ -51,13 +51,13 @@ retry_file_name: retries.txt
 progress_file_name: progress.txt
 #
 collection: LSST.DP2
-namespace: LSST/DP2
+namespace: dp2
 scheme: lsst
 lookup:
   data_release: 2028-01-01T00:00:00
   dataset_type: deep_coadd
   instrument: LSSTCam
-  butler_uri: file://./butler.yaml
+  butler_uri: https://ws-uv.canfar.net/lsst/api/butler/repo/dp2
   butler_collections: LSSTCam/runs/DRP/DP2
 preview_scheme: lsst
 #

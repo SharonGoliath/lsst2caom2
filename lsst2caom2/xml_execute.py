@@ -91,7 +91,7 @@ class XmlIngestRunnerMeta(ec.CaomExecuteRunnerMeta):
 
     def _set_preconditions(self):
         self._logger.debug(f'Begin _set_preconditions for {self._storage_name.file_name}')
-        xml_fqn = self._storage_name.xml_fqn
+        xml_fqn = self._storage_name.source_names[0]
         self._logger.debug(f'read Observation XML from {xml_fqn}')
         self._observation = mc.read_obs_from_file(xml_fqn)
         # Identity comes only from the Observation document.
@@ -110,6 +110,9 @@ class XmlIngestRunnerMeta(ec.CaomExecuteRunnerMeta):
 
         self._logger.debug('write the Observation XML for debugging')
         self._write_model()
+
+        self._logger.debug('store the xml')
+        self._caom2_store()
 
         self._logger.debug('End XmlIngestRunnerMeta.execute')
 
