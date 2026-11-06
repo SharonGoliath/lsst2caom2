@@ -78,7 +78,7 @@ import datetime
 import logging
 import urllib.parse
 
-from caom2 import ChecksumURI
+from caom2 import ChecksumURI, Polygon, SegmentType, Vertex
 from caom2pipe.manage_composable import CadcException, make_datetime
 
 
@@ -111,6 +111,73 @@ def rekey_artifact(plane, old_uri, new_uri):
     return artifact
 
 
+def _dali_signed_area(coords):
+    """Signed area with longitude increasing to the left.
+
+    DALI winding is counter-clockwise when viewed from the origin of the
+    unit sphere, so right ascension increases east/left and declination
+    increases north/up. A positive area is that counter-clockwise direction.
+    """
+    area2 = 0.0
+    count = len(coords)
+    for index in range(count):
+        lon1, lat1 = coords[index]
+        lon2, lat2 = coords[(index + 1) % count]
+        area2 += (-lon1) * lat2 - (-lon2) * lat1
+    return area2
+
+
+def _is_counter_clockwise(coords):
+    return _dali_signed_area(coords) > 0.0
+
+
+def _sample_loops(vertices):
+    loops = []
+    current = []
+    for vertex in vertices:
+        current.append(vertex)
+        if vertex.type == SegmentType.CLOSE:
+            loops.append(current)
+            current = []
+    if current:
+        loops.append(current)
+    return loops
+
+
+def _reverse_sample_loop(loop):
+    coords = [(vertex.cval1, vertex.cval2) for vertex in loop if vertex.type != SegmentType.CLOSE]
+    coords.reverse()
+    reversed_loop = []
+    for index, (lon, lat) in enumerate(coords):
+        seg_type = SegmentType.MOVE if index == 0 else SegmentType.LINE
+        reversed_loop.append(Vertex(float(lon), float(lat), seg_type))
+    lon, lat = coords[0]
+    reversed_loop.append(Vertex(float(lon), float(lat), SegmentType.CLOSE))
+    return reversed_loop
+
+
+def ensure_counter_clockwise_bounds(polygon):
+    """Reverse a Polygon bounds ring that is clockwise in the DALI sense.
+
+    The check uses ``polygon.points``. When that ring is reversed, each
+    sample loop is reversed too so holes keep the opposite winding.
+    """
+    points = getattr(polygon, 'points', None)
+    if not points or len(points) < 3:
+        return polygon
+    coords = [(point.cval1, point.cval2) for point in points]
+    if _is_counter_clockwise(coords):
+        return polygon
+    points.reverse()
+    samples = getattr(polygon, 'samples', None)
+    if samples is not None and getattr(samples, 'vertices', None):
+        reversed_vertices = []
+        for loop in _sample_loops(samples.vertices):
+            reversed_vertices.extend(_reverse_sample_loop(loop))
+        samples.vertices[:] = reversed_vertices
+    return polygon
+
+
 def _to_naive_datetime(value):
     """CAOM2 Plane release fields require a timezone-naive datetime."""
     if value is None:
@@ -135,7 +202,7 @@ class XmlAugmentationVisitor:
 
     @property
     def si_path_root(self):
-        return self._lookup.get('si_path_root', _DEFAULT_SI_PATH_ROOT)
+        return self._lookup.get('si_path_root', _DEFAULT_SI_ROOT_PATH)
 
     @property
     def observation_id_keys(self):
@@ -159,6 +226,10 @@ class XmlAugmentationVisitor:
         self._logger.debug(f'Begin XML augmentation for {self.observation.observation_id}')
         for plane in self.observation.planes.values():
             self._rewrite_plane(plane)
+            position = getattr(plane, 'position', None)
+            bounds = getattr(position, 'bounds', None) if position is not None else None
+            if isinstance(bounds, Polygon):
+                ensure_counter_clockwise_bounds(bounds)
             for old_uri in list(plane.artifacts.keys()):
                 # TODO need a check to not redo a lookup if it's already been set
                 self._rewrite_artifact(self.observation.observation_id, plane, plane.artifacts[old_uri], old_uri)
@@ -175,9 +246,7 @@ class XmlAugmentationVisitor:
                 )
             plane.data_release = data_release
         if plane.meta_release is None:
-            plane.meta_release = _to_naive_datetime(
-                self.observation.meta_release or datetime.datetime.now()
-            )
+            plane.meta_release = self.observation.meta_release or datetime.datetime.now()
 
     def _rewrite_artifact(self, observation_id, plane, artifact, old_uri):
         new_uri, length, checksum = self._lookup_uri_and_meta(observation_id, plane, old_uri)
