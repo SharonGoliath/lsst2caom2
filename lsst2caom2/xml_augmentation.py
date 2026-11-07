@@ -76,16 +76,14 @@ Butler.getURI and fill missing content_length / checksum.
 
 import datetime
 import logging
-import urllib.parse
 
-from caom2 import ChecksumURI, Polygon, SegmentType, Vertex
+from caom2 import Polygon, SegmentType, Vertex
 from caom2pipe.manage_composable import CadcException, make_datetime
 
 
 __all__ = ['visit' ]
 
 
-# Defaults aligned with butler2caom.py for DP1 coadds.
 _DEFAULT_SI_ROOT_PATH = '/raven/files/'
 _DEFAULT_OBSERVATION_ID_KEYS = ['skymap', 'tract']
 _DEFAULT_DATASET_TYPE = 'deep_coadd'
@@ -253,9 +251,14 @@ class XmlAugmentationVisitor:
         rekey_artifact(plane, old_uri, new_uri)
         if artifact.content_length is None and length is not None:
             artifact.content_length = length
-        if artifact.content_checksum is None and checksum:
-            # checksum uri type is adler
-            artifact.content_checksum = ChecksumURI(checksum)
+        # no adler checksums
+        # Could not create an observation record for lsst_cells_v2-9974.
+        # invalid input: caom:LSST.DP2/lsst_cells_v2-9974
+        # |cause: invalid Artifact.contentChecksum: adler:uSXNuA== contains invalid hex chars --
+        # expected <algorithm>:<hex value>
+        # if artifact.content_checksum is None and checksum:
+        #     # checksum uri type is adler
+        #     artifact.content_checksum = ChecksumURI(checksum)
 
     def _lookup_uri_and_meta(self, observation_id, plane, old_uri):
         obs_bits = observation_id.split('-')

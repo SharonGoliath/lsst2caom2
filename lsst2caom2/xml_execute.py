@@ -72,6 +72,7 @@
 import logging
 import os
 
+from caom2pipe.client_composable import repo_get
 from caom2pipe import execute_composable as ec
 from caom2pipe import manage_composable as mc
 
@@ -96,6 +97,15 @@ class XmlIngestRunnerMeta(ec.CaomExecuteRunnerMeta):
         self._observation = mc.read_obs_from_file(xml_fqn)
         # Identity comes only from the Observation document.
         self._storage_name.obs_id = self._observation.observation_id
+
+        # don't need to keep the version in the database, because the version on disk is authoritative
+        temp = repo_get(
+            self.caom_repo_client, self._config.collection, self._observation.observation_id, self.observable.metrics
+        )
+        self._caom2_update_needed = False if temp is None else True
+        if self._caom2_update_needed:
+            self._logger.debug(f'Found observation {self._observation.observation_id}')
+
         # Recompute after obs_id is known; name (and therefore model_file_name) uses obs_id.
         if self._config.log_to_file:
             self._model_fqn = os.path.join(self._config.log_file_directory, self._storage_name.model_file_name)

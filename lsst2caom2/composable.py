@@ -80,10 +80,9 @@ import sys
 import traceback
 
 from caom2pipe.client_composable import ClientCollection
-from caom2pipe.manage_composable import Config
+from caom2pipe.manage_composable import Config, StorageName
 from caom2pipe.run_composable import run_by_state_runner_meta, run_by_todo_runner_meta
 from lsst2caom2 import xml_augmentation
-from lsst2caom2.storage_name import LSSTName
 
 
 META_VISITORS = [xml_augmentation]
@@ -123,7 +122,7 @@ def _run():
         clients=clients,
         meta_visitors=META_VISITORS,
         data_visitors=DATA_VISITORS,
-        storage_name_ctor=LSSTName,
+        storage_name_ctor=StorageName,
         organizer_module_name='lsst2caom2.xml_execute',
         organizer_class_name='XmlOrganizeExecutesRunnerMeta',
     )
@@ -134,33 +133,6 @@ def run():
     try:
         result = _run()
         sys.exit(result)
-    except Exception as e:
-        logging.error(e)
-        tb = traceback.format_exc()
-        logging.debug(tb)
-        sys.exit(-1)
-
-
-def _run_incremental():
-    """Uses a state file with a timestamp to identify the work to be done.
-    """
-    config, clients = _common_init()
-    return run_by_state_runner_meta(
-        config=config,
-        clients=clients,
-        meta_visitors=META_VISITORS,
-        data_visitors=DATA_VISITORS,
-        storage_name_ctor=LSSTName,
-        organizer_module_name='lsst2caom2.xml_execute',
-        organizer_class_name='XmlOrganizeExecutesRunnerMeta',
-    )
-
-
-def run_incremental():
-    """Wraps _run_incremental in exception handling."""
-    try:
-        _run_incremental()
-        sys.exit(0)
     except Exception as e:
         logging.error(e)
         tb = traceback.format_exc()

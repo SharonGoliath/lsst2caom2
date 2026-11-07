@@ -70,11 +70,9 @@ import warnings
 
 from mock import Mock
 
-from cadcdata import FileInfo
-from lsst2caom2 import xml_augmentation, storage_name
+from lsst2caom2 import xml_augmentation
 from caom2.diff import get_differences
-from caom2pipe import astro_composable as ac
-from caom2pipe.manage_composable import ExecutionReporter2, read_obs_from_file, write_obs_to_file
+from caom2pipe.manage_composable import ExecutionReporter2, read_obs_from_file, StorageName, write_obs_to_file
 
 import glob
 import os
@@ -85,14 +83,18 @@ def pytest_generate_tests(metafunc):
     metafunc.parametrize('test_name', obs_id_list)
 
 
+class Object:
+    pass
+
+
 def test_main_app(test_name, test_config, tmp_path, change_test_dir):
     warnings.filterwarnings('ignore')
     test_config.change_working_directory(tmp_path.as_posix())
-    test_storage_name = storage_name.LSSTName(source_names=[test_name])
-    file_info = FileInfo(id=test_storage_name.file_uri, file_type='application/fits')
-    headers = ac.make_headers_from_file(test_name)
-    test_storage_name.file_info = {test_storage_name.file_uri: file_info}
-    test_storage_name.metadata = {test_storage_name.file_uri: headers}
+    test_storage_name = StorageName(source_names=[test_name])
+    # file_info = FileInfo(id=test_storage_name.file_uri, file_type='application/fits')
+    # headers = ac.make_headers_from_file(test_name)
+    # test_storage_name.file_info = {test_storage_name.file_uri: file_info}
+    # test_storage_name.metadata = {test_storage_name.file_uri: headers}
     test_reporter = ExecutionReporter2(test_config)
     clients_mock = Mock()
     # artifact_dataset_ref deep_coadd@{
@@ -104,17 +106,23 @@ def test_main_app(test_name, test_config, tmp_path, change_test_dir):
     # uri https://ws.cadc-ccda.hia-iha.nrc-cnrc.gc.ca/raven/files/lsst:dp1/LSSTComCam/runs/DRP/DP1/DM-51335/deep_coadd/453/11/g/deep_coadd_453_11_g_lsst_cells_v1_LSSTComCam_runs_DRP_DP1_DM-51335.fits
     # <class 'lsst.daf.butler.dimensions._coordinate._FullTupleDataCoordinate'>
 
-    clients_mock.butler.getURI.return_value = {
-        'uri': 'https://ws.cadc-ccda.hia-iha.nrc-cnrc.gc.ca/raven/files/lsst:dp1/LSSTComCam/runs/DRP/DP1/DM-51335/deep_coadd/453/11/g/deep_coadd_453_11_g_lsst_cells_v1_LSSTComCam_runs_DRP_DP1_DM-51335.fits',
-        'size': 6,
-        'md5': 12,
+    getURI_mock = Mock()
+    clients_mock.butler.getURI.return_value = getURI_mock
+    get_info_mock = Object()
+    get_info_mock.uri = 'https://ws.cadc-ccda.hia-iha.nrc-cnrc.gc.ca/raven/files/lsst:dp1/LSSTComCam/runs/DRP/DP1/DM-51335/deep_coadd/453/11/g/deep_coadd_453_11_g_lsst_cells_v1_LSSTComCam_runs_DRP_DP1_DM-51335.fits'
+    get_info_mock.size = 6
+    get_info_mock.checksums = {
+        'adler': 'uSXNuA==',
     }
+    getURI_mock.get_info.return_value = get_info_mock
+
     kwargs = {
         'storage_name': test_storage_name,
         'config': test_config,
         'reporter': test_reporter,
         'clients': clients_mock,
     }
+
     expected_fqn = test_name.replace('.fits.header', '.expected.xml')
     in_fqn = expected_fqn.replace('.expected', '.in')
     actual_fqn = expected_fqn.replace('expected', 'actual')

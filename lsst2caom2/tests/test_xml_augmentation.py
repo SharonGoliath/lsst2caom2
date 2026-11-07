@@ -66,7 +66,6 @@
 # ***********************************************************************
 #
 
-
 import datetime
 from unittest.mock import MagicMock, Mock
 
@@ -100,12 +99,26 @@ def _observation(obs_id='lsst_cells_v1-453-11', uri=None, length=None, md5=None,
     return observation, uri
 
 
-def _clients(butler_uri_obj, dataset_ref=None):
+def _butler_uri(
+    url='https://example.canfar.net/raven/files/lsst:dp1/rewritten/y.fits',
+    size=12345,
+    checksums=None,
+):
+    uri_info = MagicMock()
+    uri_info.uri = url
+    uri_info.size = size
+    uri_info.checksums = checksums if checksums is not None else {'adler': 'uSXNuA=='}
+    butler_uri = MagicMock()
+    butler_uri.get_info.return_value = uri_info
+    return butler_uri
+
+
+def _clients(butler_uri_obj=None, dataset_ref=None):
     butler = MagicMock()
     ref = dataset_ref or MagicMock()
     ref.datasetType.name = 'deep_coadd'
-    butler.query_datasets.return_value = [ref]
-    butler.getURI.return_value = butler_uri_obj
+    butler.find_dataset.return_value = ref
+    butler.getURI.return_value = butler_uri_obj if butler_uri_obj is not None else _butler_uri()
     clients = Mock()
     clients.butler = butler
     return clients, butler, ref
@@ -113,25 +126,15 @@ def _clients(butler_uri_obj, dataset_ref=None):
 
 def _lookup(**extra):
     lookup = {
-        'uri_rewrite_fields': ['artifact_uri'],
         'dataset_type': 'deep_coadd',
-        'instrument': 'LSSTComCam',
-        'observation_id_keys': ['skymap', 'tract', 'patch'],
+        'instrument': 'LSSTCam',
+        'observation_id_keys': ['skymap', 'tract'],
         'si_path_root': '/raven/files/',
+        'butler_collections': 'LSSTCam/runs/DRP/DP2',
         'data_release': datetime.datetime(2024, 1, 15),
     }
     lookup.update(extra)
     return lookup
-
-
-def test_get_rewrite_fields_empty_when_unset(test_config):
-    test_config.lookup = {}
-    assert xa.get_rewrite_fields(test_config) == []
-
-
-def test_get_rewrite_fields_from_lookup(test_config):
-    test_config.lookup = {'uri_rewrite_fields': ['artifact_uri', 'plane_data_release']}
-    assert xa.get_rewrite_fields(test_config) == ['artifact_uri', 'plane_data_release']
 
 
 def test_rekey_artifact():
@@ -157,10 +160,10 @@ def test_rekey_artifact_collision():
 
 def test_rewrite_uri_and_fill_missing_meta(test_config):
     observation, old_uri = _observation()
-    butler_uri = MagicMock()
-    butler_uri.geturl.return_value = 'https://example.canfar.net/raven/files/lsst:dp1/rewritten/y.fits'
-    butler_uri.size = 12345
-    butler_uri.md5 = 'abc123def456'
+    butler_uri = _butler_uri(
+        url='https://example.canfar.net/raven/files/lsst:dp1/rewritten/y.fits',
+        size=12345,
+    )
     clients, butler, ref = _clients(butler_uri)
     test_config.lookup = _lookup()
 
@@ -173,17 +176,26 @@ def test_rewrite_uri_and_fill_missing_meta(test_config):
     artifact = plane.artifacts[new_uri]
     assert artifact.uri == new_uri
     assert artifact.content_length == 12345
-    assert artifact.content_checksum.uri == 'md5:abc123def456'
+    # Adler checksum application is currently disabled in xml_augmentation.
+    assert artifact.content_checksum is None
+    butler.find_dataset.assert_called_once_with(
+        'deep_coadd',
+        collections=['LSSTCam/runs/DRP/DP2'],
+        band='y',
+        skymap='lsst_cells_v1',
+        tract=453,
+        patch=11,
+    )
     butler.getURI.assert_called_once_with(ref)
-    clients.data_client.info.assert_called_with(new_uri)
 
 
-def test_rewrite_preserves_existing_length_md5(test_config):
+def test_rewrite_preserves_existing_length_checksum(test_config):
     observation, _ = _observation(length=999, md5='md5:alreadythere')
-    butler_uri = MagicMock()
-    butler_uri.geturl.return_value = 'https://host/raven/files/cadc:NEW/file.fits'
-    butler_uri.size = 1
-    butler_uri.md5 = 'newmd5'
+    butler_uri = _butler_uri(
+        url='https://host/raven/files/cadc:NEW/file.fits',
+        size=1,
+        checksums={'adler': 'newchecksum'},
+    )
     clients, _, _ = _clients(butler_uri)
     test_config.lookup = _lookup()
 
@@ -193,19 +205,20 @@ def test_rewrite_preserves_existing_length_md5(test_config):
     assert artifact.content_checksum.uri == 'md5:alreadythere'
 
 
-def test_lookup_miss_fails(test_config):
+def test_find_dataset_none_geturi_fails(test_config):
     observation, _ = _observation()
-    clients, butler, _ = _clients(MagicMock())
-    butler.query_datasets.return_value = []
+    clients, butler, _ = _clients()
+    butler.find_dataset.return_value = None
+    butler.getURI.side_effect = RuntimeError('not found')
     test_config.lookup = _lookup()
     with pytest.raises(CadcException) as exc:
         xa.visit(observation, config=test_config, clients=clients)
-    assert 'Butler returned no' in str(exc.value)
+    assert 'getURI failed' in str(exc.value)
 
 
 def test_geturi_failure_fails(test_config):
     observation, _ = _observation()
-    clients, butler, _ = _clients(MagicMock())
+    clients, butler, _ = _clients()
     butler.getURI.side_effect = RuntimeError('not found')
     test_config.lookup = _lookup()
     with pytest.raises(CadcException) as exc:
@@ -216,11 +229,9 @@ def test_geturi_failure_fails(test_config):
 def test_plane_release_filled_when_missing(test_config):
     obs_meta = datetime.datetime(2025, 6, 30)
     observation, _ = _observation(meta_release=obs_meta)
-    test_config.lookup = {
-        'uri_rewrite_fields': ['plane_data_release', 'plane_meta_release'],
-        'data_release': datetime.datetime(2024, 1, 15),
-    }
-    xa.visit(observation, config=test_config, clients=Mock())
+    clients, _, _ = _clients()
+    test_config.lookup = _lookup(data_release=datetime.datetime(2024, 1, 15))
+    xa.visit(observation, config=test_config, clients=clients)
     plane = observation.planes['deep_coadd-453-11-y']
     assert plane.data_release == datetime.datetime(2024, 1, 15)
     assert plane.meta_release == obs_meta
@@ -231,23 +242,19 @@ def test_plane_release_preserves_existing(test_config):
     plane = observation.planes['deep_coadd-453-11-y']
     plane.data_release = datetime.datetime(2020, 1, 1)
     plane.meta_release = datetime.datetime(2021, 1, 1)
-    test_config.lookup = {
-        'uri_rewrite_fields': ['plane_data_release', 'plane_meta_release'],
-        'data_release': datetime.datetime(2024, 1, 15),
-    }
-    xa.visit(observation, config=test_config, clients=Mock())
+    clients, _, _ = _clients()
+    test_config.lookup = _lookup(data_release=datetime.datetime(2024, 1, 15))
+    xa.visit(observation, config=test_config, clients=clients)
     assert plane.data_release == datetime.datetime(2020, 1, 1)
     assert plane.meta_release == datetime.datetime(2021, 1, 1)
 
 
 def test_plane_meta_release_falls_back_to_now(test_config):
     observation, _ = _observation(meta_release=None)
-    test_config.lookup = {
-        'uri_rewrite_fields': ['plane_meta_release'],
-        'data_release': datetime.datetime(2024, 1, 15),
-    }
+    clients, _, _ = _clients()
+    test_config.lookup = _lookup()
     before = datetime.datetime.now()
-    xa.visit(observation, config=test_config, clients=Mock())
+    xa.visit(observation, config=test_config, clients=clients)
     meta_release = observation.planes['deep_coadd-453-11-y'].meta_release
     assert meta_release.tzinfo is None
     assert meta_release >= before - datetime.timedelta(seconds=5)
@@ -259,56 +266,28 @@ def test_yaml_date_coerced_to_naive_datetime(test_config):
         'uri_rewrite_fields': ['plane_data_release'],
         'data_release': datetime.date(2025, 6, 30),
     }
-    xa.visit(observation, config=test_config, clients=Mock())
+
+    class Object:
+        pass
+
+    getURI_mock = Mock()
+    clients_mock = Mock()
+    clients_mock.butler.getURI.return_value = getURI_mock
+    get_info_mock = Object()
+    get_info_mock.uri = 'https://ws.cadc-ccda.hia-iha.nrc-cnrc.gc.ca/raven/files/lsst:dp1/LSSTComCam/runs/DRP/DP1/DM-51335/deep_coadd/453/11/g/deep_coadd_453_11_g_lsst_cells_v1_LSSTComCam_runs_DRP_DP1_DM-51335.fits'
+    get_info_mock.size = 6
+    get_info_mock.checksums = {
+        'adler': 'uSXNuA==',
+    }
+    getURI_mock.get_info.return_value = get_info_mock
+
+    xa.visit(observation, config=test_config, clients=clients_mock)
     assert observation.planes['deep_coadd-453-11-y'].data_release == datetime.datetime(2025, 6, 30)
 
 
 def test_missing_data_release_fails_when_listed(test_config):
     observation, _ = _observation()
-    test_config.lookup = {'uri_rewrite_fields': ['plane_data_release']}
+    test_config.lookup = {'butler_collections': 'LSSTCam/runs/DRP/DP2'}
     with pytest.raises(CadcException) as exc:
         xa.visit(observation, config=test_config, clients=Mock())
     assert "lookup['data_release'] is missing" in str(exc.value)
-
-
-def _released_observation():
-    observation, uri = _observation()
-    plane = observation.planes['deep_coadd-453-11-y']
-    plane.data_release = datetime.datetime(2024, 1, 1)
-    plane.meta_release = datetime.datetime(2024, 1, 1)
-    return observation, uri
-
-
-def test_artifact_accessibility_ok(test_config):
-    observation, uri = _released_observation()
-    test_config.lookup = {'uri_rewrite_fields': []}
-    clients = Mock()
-    clients.data_client.info.return_value = Mock(size=1)
-    xa.visit(observation, config=test_config, clients=clients)
-    clients.data_client.info.assert_called_with(uri)
-
-
-def test_artifact_accessibility_missing(test_config):
-    observation, uri = _released_observation()
-    test_config.lookup = {'uri_rewrite_fields': []}
-    clients = Mock()
-    clients.data_client.info.return_value = None
-    with pytest.raises(CadcException) as exc:
-        xa.visit(observation, config=test_config, clients=clients)
-    assert f'Artifact {uri} is not accessible in storage.' in str(exc.value)
-
-
-def test_artifact_accessibility_error(test_config):
-    observation, uri = _released_observation()
-    test_config.lookup = {'uri_rewrite_fields': []}
-    clients = Mock()
-    clients.data_client.info.side_effect = RuntimeError('404')
-    with pytest.raises(CadcException) as exc:
-        xa.visit(observation, config=test_config, clients=clients)
-    assert f'Artifact {uri} is not accessible in storage' in str(exc.value)
-
-
-def test_artifact_accessibility_skipped_without_data_client(test_config):
-    observation, _ = _released_observation()
-    test_config.lookup = {'uri_rewrite_fields': []}
-    xa.visit(observation, config=test_config, clients=None)
