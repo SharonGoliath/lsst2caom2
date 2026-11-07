@@ -73,10 +73,9 @@ from unittest.mock import Mock
 
 import pytest
 from caom2 import Algorithm, Artifact, Plane, ProductType, ReleaseType, SimpleObservation
-from caom2pipe.manage_composable import CadcException, ExecutionReporter2, TaskType, write_obs_to_file
+from caom2pipe.manage_composable import CadcException, ExecutionReporter2, StorageName, TaskType, write_obs_to_file
 
 from lsst2caom2.xml_execute import XmlIngestRunnerMeta, XmlOrganizeExecutesRunnerMeta
-from lsst2caom2.xml_name import XmlName
 
 
 def _ensure_workspace(config, storage_name):
@@ -120,11 +119,17 @@ def test_ingest_happy_path(test_config, tmp_path):
     test_config.change_working_directory(tmp_path.as_posix())
     test_config.log_to_file = True
     os.makedirs(test_config.log_file_directory, exist_ok=True)
-    xml_fqn = (tmp_path / 'incoming.xml').as_posix()
+    # XML must not sit at working_directory/<name>: StorageName.name keeps the
+    # .xml extension, and the executor creates that path as a workspace directory.
+    xml_dir = tmp_path / 'incoming'
+    xml_dir.mkdir()
+    xml_fqn = (xml_dir / 'incoming.xml').as_posix()
     _write_valid_observation(xml_fqn, obs_id='real_obs_id')
 
-    storage_name = XmlName(source_names=[xml_fqn])
-    subject = XmlIngestRunnerMeta(Mock(), test_config, [], ExecutionReporter2(test_config))
+    storage_name = StorageName(source_names=[xml_fqn])
+    clients = Mock()
+    clients.metadata_client.read.return_value = None
+    subject = XmlIngestRunnerMeta(clients, test_config, [], ExecutionReporter2(test_config))
     _ensure_workspace(test_config, storage_name)
     subject.execute({'storage_name': storage_name})
 
@@ -137,7 +142,9 @@ def test_ingest_happy_path(test_config, tmp_path):
 def test_meta_visitor_runs(test_config, tmp_path):
     test_config.change_working_directory(tmp_path.as_posix())
     test_config.log_to_file = False
-    xml_fqn = (tmp_path / 'visit.xml').as_posix()
+    xml_dir = tmp_path / 'incoming'
+    xml_dir.mkdir()
+    xml_fqn = (xml_dir / 'visit.xml').as_posix()
     _write_valid_observation(xml_fqn, obs_id='visit_obs', artifact_uri='cadc:XML/old.fits')
 
     visited = {}
@@ -151,10 +158,12 @@ def test_meta_visitor_runs(test_config, tmp_path):
         visited['done'] = True
         return observation
 
+    clients = Mock()
+    clients.metadata_client.read.return_value = None
     subject = XmlIngestRunnerMeta(
-        Mock(), test_config, [types.SimpleNamespace(visit=_visit)], ExecutionReporter2(test_config)
+        clients, test_config, [types.SimpleNamespace(visit=_visit)], ExecutionReporter2(test_config)
     )
-    storage_name = XmlName(source_names=[xml_fqn])
+    storage_name = StorageName(source_names=[xml_fqn])
     _ensure_workspace(test_config, storage_name)
     subject.execute({'storage_name': storage_name})
     assert visited.get('done')
